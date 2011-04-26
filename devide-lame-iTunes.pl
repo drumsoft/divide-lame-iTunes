@@ -99,7 +99,7 @@ sub mp3_addiTunes($) {
 sub parse($) {
 	my $commands = shift;
 	my @procs;
-	my $pre_devider;
+	my $pre_divider;
 	my $default_number = 0;
 	my $temp_normalize_file;
 
@@ -124,7 +124,7 @@ sub parse($) {
 			}else{
 				$prefs{$1} = trim($2);
 			}
-		}elsif( m{^(?:[\d\:\.]+|\d+s)\s*(\t|$)} ){# devider 
+		}elsif( m{^(?:[\d\:\.]+|\d+s)\s*(\t|$)} ){# divider 
 			#開始点位置	トラック番号	アーティスト	曲名
 			my $data = $1;
 			my %temp;
@@ -135,10 +135,10 @@ sub parse($) {
 				$temp{'artist'} =~ s/^(.*),\s*(the)$/"$2 $1"/ei;
 			}
 			setprefs(\%prefs, \%temp);
-			if ($pre_devider) {
-				$pre_devider->{'length'} = 
-					timediff($prefs{'start'}, $pre_devider->{'start'});
-				undef $pre_devider;
+			if ($pre_divider) {
+				$pre_divider->{'length'} = 
+					timediff($prefs{'start'}, $pre_divider->{'start'});
+				undef $pre_divider;
 			}
 			if (defined $data && '' ne $data) {
 				$default_number++;
@@ -148,7 +148,7 @@ sub parse($) {
 				unless (defined $temp{'title'} && $temp{'title'} ne '') {
 					$prefs{'title'} = "Track $prefs{'number'}";
 				}
-				$pre_devider = {
+				$pre_divider = {
 					type   => 'track',
 					source => $prefs{'source'},
 					start  => $prefs{'start'},
@@ -162,7 +162,7 @@ sub parse($) {
 					genre  => $prefs{'genre'},
 					lameoption  => $prefs{'lameoption'},
 				};
-				push @procs, $pre_devider;
+				push @procs, $pre_divider;
 			}
 		}else{ # file
 			#ファイル名	アルバム名	年	ジャンル
@@ -263,7 +263,7 @@ main();
 
 __END__
 
-template of Devide Setting File.
+template of Divide Setting File.
 
 #fade 0.1
 #normalize 1

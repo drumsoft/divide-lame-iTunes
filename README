@@ -1,4 +1,4 @@
-devide-lame-iTunes.pl
+divide-lame-iTunes.pl
 
 (Mac OS X, Terminal から使用するperlスクリプト, sox, lame, MP3::Tag が必要)
 
@@ -13,7 +13,7 @@ devide-lame-iTunes.pl
 3.分割設定.txt にアルバム名,年,ジャンル等のメタデータを記入
 4.波形エディタで 分割元のファイル の波形を見て、曲の分割点を決定。
   その分割点を 分割設定.txt に記入する
-5.devide-lame-iTunes.pl 分割設定.txt を実行
+5.divide-lame-iTunes.pl 分割設定.txt を実行
 
 【分割設定ファイルのフォーマット】
 以下のタブ区切りデータを複数個書く事ができる。

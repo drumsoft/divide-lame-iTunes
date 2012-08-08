@@ -1,6 +1,7 @@
 # divide-lame-iTunes.pl + divide-auto.pl
 
 ## 概要
+
 ### divide-lame-iTunes.pl
 アナログレコードやカセットテープ、ライブ等を録音した音声ファイルを
 分割(端点のフェード), mp3圧縮, iTunes取り込み
@@ -10,6 +11,16 @@
 ### divide-auto.pl
 波形から曲間を検索して、 divide-lame-iTunes.pl で使用する 分割設定ファイル のひな型を出力するスクリプトです。
 (perl, Audio::Wav, Inline::C が必要)
+
+
+## 大まかな作業の流れ
+
+1. Audacity 等でアナログ音声を録音
+2. 書き出し メニューから wavファイル を書き出し
+3. divide-auto.pl で 分割設定ファイル のひな形を出力
+4. 波形エディタで wavファイル を見ながら 分割設定ファイル の分割位置を修正
+5. 分割設定ファイル に曲名やアーティスト名を追記する
+6. divide-lame-iTunes.pl で分割, mp3圧縮, iTunes取り込み を行う
 
 
 ## divide-lame-iTunes.pl の使い方

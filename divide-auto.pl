@@ -10,13 +10,14 @@ use Inline 'C';
 my %prefs = (
 # 波形分析オプション
 	precision => 4000, # 分析精度 1/precision 秒単位で分析を行う
-	threshold => -22,  # 有音部分/無音部分 音量の境界
-	gaplength => 1,    # 無音部分が gaplength 以上継続したらトラックを終了しギャップとする
-	ignore    => 1.18, # ギャップ中に現れた有音部分が ignore  秒以下ならノイズと判断して無視
-	wavegap   => 0.03, # トラック中に現れた無音部分が wavegap 秒以下なら波形の谷間と判断して無視
+	threshold => -22,  # 有音/無音 の音量境界(db)
+	release   => 1.5,  # 音量が下がる際のリリース時間(seconds)
+# トラック/ギャップ判定オプション
+	ignore    => 5,    # ギャップ中のノイズ/トラック の境界(seconds)
+	gaplength => 1,    # トラック中の無音部分/ギャップ の境界(seconds)
 # 分割位置調整オプション
-	premargin  => 0.5, # トラック開始点を見つけたら、そこから pregap 分のマージンを取る
-	postmargin => 2,   # トラック終了位置から postmargin 分のマージンを取る
+	premargin  => 0.5, # トラック開始点を見つけたら、そこから pregap 秒のマージンを取る
+	postmargin => 2,   # トラック終了位置から postmargin 秒のマージンを取る
 # 出力オプション
 	format     => 'time', # 'time' => 'hh:mm:ss.sss' or 'samples' => '99999s'
 );
@@ -62,9 +63,9 @@ sub process_main {
 
 	open my $out, ">$listfile" or die "cannot open $listfile";
 	print $out "#fade 0.1\n#normalize 1\n#lameoption -b 320 -h\n\n";
-	print $out "$file\tALBUM\tYEAR\tGENRE\n";
+	print $out "$file\tALBUMTITLE\tYEAR\tGENRE\n";
 	for ( my $number = 0; $number < @listtime - 1; $number++ ) {
-		printf $out "\t$number\t\tSONG\n", $number+1, $listtime[$number];
+		printf $out "%s\t%d\t\tSONGTITLE%d\n", $listtime[$number], $number+1, $number+1;
 	}
 	print $out $listtime[-1] . "\n";
 	close $out;
@@ -83,13 +84,10 @@ sub analyze {
 	my $premargin  = $prefs{premargin}  * $sample_rate;
 	my $postmargin = $prefs{postmargin} * $sample_rate;
 
-	my @result = analyze_c2( $file, $details->{data_start}, $total, 
+	my @result = analyze_c( $file, $details->{data_start}, $total, 
 		$prefs{precision}, 
 		$details->{sample_rate}, $details->{bits_sample} / 8, $details->{channels}, 
-		db2value( $prefs{threshold} ), 
-		$prefs{gaplength} * $sample_rate, 
-		$prefs{ignore} * $sample_rate, 
-		$prefs{wavegap} * $sample_rate);
+		db2value( $prefs{threshold} ), $prefs{release});
 
 	my $formatter;
 	if ( $prefs{'format'} eq 'time' ) {
@@ -116,6 +114,11 @@ sub analyze {
 		}
 	}
 
+	@result = ignore_noises($formatter, 
+		$prefs{ignore}    * $sample_rate, 
+		$prefs{gaplength} * $sample_rate, 
+		@result);
+
 	report(sprintf "\t[detected positions] total length: %s", $formatter->($total) ) if $verbose;
 	my @positions;
 	my $number = 0;
@@ -132,6 +135,53 @@ sub analyze {
 	return map &$formatter, @positions;
 }
 
+sub ignore_noises {
+	my $formatter    = shift;
+	my $ignorelength = shift;
+	my $gaplength    = shift;
+	my @list         = @_;
+	my ($number, @temp, $i, $ignore);
+	# ignore noises
+	report(sprintf "\tignore noises") if $debug;
+	@temp = ();
+	$number = 0;
+	for ( $i = 0; $i < @list; $i += 2 ) {
+		$number++;
+		if ( $list[$i+1] - $list[$i] < $ignorelength ) {
+			$ignore = 1;
+		} else {
+			push @temp, $list[$i], $list[$i+1];
+			$ignore = 0;
+		}
+		report(sprintf "\tsound %d:\tfrom %s\tto %s\t%s", $number, 
+		       $formatter->($list[$i]), $formatter->($list[$i+1]), 
+		       $ignore ? 'NOISE' : 'sound' )
+		       if $debug;
+	}
+	@list = @temp;
+
+	# ignore silence
+	report(sprintf "\tignore silences") if $debug;
+	@temp = ();
+	push @temp, $list[0];
+	$number = 0;
+	for ( $i = 1; $i < @list - 1; $i += 2 ) {
+		$number++;
+		if ( $list[$i+1] - $list[$i] < $gaplength ) {
+			$ignore = 1;
+		} else {
+			push @temp, $list[$i], $list[$i+1];
+			$ignore = 0;
+		}
+		report(sprintf "\tsilence %d:\tfrom %s\tto %s\t%s", $number, 
+		       $formatter->($list[$i]), $formatter->($list[$i+1]), 
+		       $ignore ? 'MUTE' : 'gap' )
+		       if $debug;
+	}
+	push @temp, $list[-1];
+
+	return @temp;
+}
 
 sub play {
 	my $file = shift;
@@ -139,13 +189,17 @@ sub play {
 	
 	if ( $file !~ /\.txt$/ ) {
 		$file = get_txt_file($file);
+		report("divide file: $file");
 	}
-	report("divide file: $file");
 	
 	my @list = get_startlist($file);
 
-	print YAML::Dump(@list);
 	my $wavfile = shift @list;
+
+	if ( $number < 1 || ($number - 1) >= @list ) {
+		die "track number $number is out of range.";
+	}
+
 	my $command = sprintf "play '%s' trim %s", $wavfile, $list[$number - 1];
 	report($command);
 	system $command;
@@ -154,15 +208,19 @@ sub play {
 sub get_txt_file {
 	my $listfile = shift;
 
-	$listfile =~ s/\.\w+$/.txt/;
-	if ( -e $listfile ) {
+	my $result;
+	$listfile =~ s/\.\w+$//;
+	if ( -e "$listfile.txt" ) {
+		$result = "$listfile.txt";
 		my $count = 0;
 		while ( -e "$listfile-$count.txt") {
-			$listfile = "$listfile-$count.txt";
+			$result = "$listfile-$count.txt";
 			$count++;
 		}
+	} else {
+		die "no .txt file found";
 	}
-	return $listfile;
+	return $result;
 }
 
 sub get_startlist {
@@ -224,152 +282,12 @@ wave-ex: 1
 
 __C__
 #define STATE_GAP                                   0
-#define STATE_SOUND_IN_GAP                          1
-#define STATE_WAVEGAP_IN_SOUND_IN_GAP               2
-#define STATE_TRACK                                 3
-#define STATE_WAVEGAP_IN_TRACK                      4
-#define STATE_SILENCE_IN_TRACK                      5
-#define STATE_SOUND_IN_SILENCE_IN_TRACK             6
-#define STATE_WAVEGAP_IN_SOUND_IN_SILENCE_IN_TRACK  7
+#define STATE_TRACK                                 1
 
-/*
-	analyze_c returns (start1, end1, start2, end2, ...)
-*/
 void analyze_c( char* file, int offset, int total, 
 	int precision, 
 	int sample_rate, int sample_size, int channels, 
-	double threshold_f, 
-	int gaplength, int ignore, int wavegap ) {
-
-	Inline_Stack_Vars;
-	Inline_Stack_Reset;
-
-	int threshold = (int)((double)0x7fffffff * threshold_f);
-	int processunit = sample_rate / precision;
-	if ( processunit < 1 ) processunit = 1;
-	int processsize = processunit * channels * sample_size;
-	int state = STATE_GAP;
-	int length_sound, length_wavegap, length_silence;
-	int bitoffset = 8 * (4 - sample_size);
-
-	unsigned char *buffer = (unsigned char*) malloc(processsize);
-	int fd = open (file, O_RDONLY);
-	lseek( fd, offset, SEEK_SET );
-
-	int position, c, d;
-	for (position = 0; position < total; position += processunit) {
-		// get data and calculate $dynamics
-		int rd = read( fd, buffer, processsize );
-		int dynamics = 0;
-		for (c = 0; c < rd; c += sample_size) {
-			int data = 0;
-			for (d = 0; d < sample_size; d++ ) {
-				data |= buffer[c + d] << (8 * d + bitoffset);
-			}
-			if ( abs(data) > dynamics ) {
-				dynamics = abs(data);
-			}
-		}
-
-		// change state
-		if        ( state == STATE_GAP) {
-			if ( dynamics >= threshold ) {
-				state = STATE_SOUND_IN_GAP;
-				length_sound = 0;
-			}
-		} else if ( state == STATE_SOUND_IN_GAP) {
-			length_sound += processunit;
-			if ( length_sound >= ignore ) {
-				state = STATE_TRACK;
-				Inline_Stack_Push(newSViv( position - length_sound ));
-			} else if ( dynamics < threshold ) {
-				state = STATE_WAVEGAP_IN_SOUND_IN_GAP;
-				length_wavegap = 0;
-			}
-		} else if ( state == STATE_WAVEGAP_IN_SOUND_IN_GAP) {
-			length_wavegap += processunit;
-			length_sound += processunit;
-			if ( length_sound >= ignore ) {
-				state = STATE_TRACK;
-				Inline_Stack_Push(newSViv( position - length_sound ));
-			} else if ( length_wavegap >= wavegap ) {
-				state = STATE_GAP;
-			} else if ( dynamics > threshold ) {
-				state = STATE_SOUND_IN_GAP;
-			}
-
-		} else if ( state == STATE_TRACK) {
-			if ( dynamics < threshold ) {
-				state = STATE_WAVEGAP_IN_TRACK;
-				length_silence = 0;
-				length_wavegap = 0;
-			}
-		} else if ( state == STATE_WAVEGAP_IN_TRACK) {
-			length_wavegap += processunit;
-			length_silence += processunit;
-			if ( length_wavegap > wavegap ) {
-				state = STATE_SILENCE_IN_TRACK;
-			} else if ( dynamics > threshold ) {
-				state = STATE_TRACK;
-			}
-		} else if ( state == STATE_SILENCE_IN_TRACK) {
-			length_silence += processunit;
-			if ( length_silence > gaplength ) {
-				state = STATE_GAP;
-				Inline_Stack_Push(newSViv( position - length_silence ));
-			} else if ( dynamics > threshold ) {
-				state = STATE_SOUND_IN_SILENCE_IN_TRACK;
-				length_sound = 0;
-			}
-		} else if ( state == STATE_SOUND_IN_SILENCE_IN_TRACK) {
-			length_silence += processunit;
-			length_sound   += processunit;
-			if ( length_silence > gaplength ) {
-				state = STATE_GAP;
-				Inline_Stack_Push(newSViv( position - length_silence ));
-			} else if ( length_sound > ignore ) {
-				state = STATE_TRACK;
-			} else if ( dynamics < threshold ) {
-				state = STATE_WAVEGAP_IN_SOUND_IN_SILENCE_IN_TRACK;
-				length_wavegap = 0;
-			}
-		} else if ( state == STATE_WAVEGAP_IN_SOUND_IN_SILENCE_IN_TRACK) {
-			length_silence += processunit;
-			length_sound   += processunit;
-			length_wavegap += processunit;
-			if ( length_silence > gaplength ) {
-				state = STATE_GAP;
-				Inline_Stack_Push(newSViv( position - length_silence ));
-			} else if ( length_sound > ignore ) {
-				state = STATE_TRACK;
-			} else if ( length_wavegap > wavegap ) {
-				state = STATE_SILENCE_IN_TRACK;
-			} else if ( dynamics > threshold ) {
-				state = STATE_SOUND_IN_SILENCE_IN_TRACK;
-			}
-		}
-	}
-	close(fd);
-	free(buffer);
-
-	if        ( state == STATE_TRACK) {
-		Inline_Stack_Push(newSViv( total ));
-	} else if ( state == STATE_WAVEGAP_IN_TRACK || 
-	            state == STATE_SILENCE_IN_TRACK || 
-	            state == STATE_SOUND_IN_SILENCE_IN_TRACK || 
-	            state == STATE_WAVEGAP_IN_SOUND_IN_SILENCE_IN_TRACK) {
-		Inline_Stack_Push(newSViv( position - length_silence ));
-	}
-	Inline_Stack_Done;
-}
-
-
-
-void analyze_c2( char* file, int offset, int total, 
-	int precision, 
-	int sample_rate, int sample_size, int channels, 
-	double threshold_f, 
-	int gaplength, int ignore, int wavegap ) {
+	double threshold_f, double release_f) {
 
 	Inline_Stack_Vars;
 	Inline_Stack_Reset;
@@ -382,9 +300,8 @@ void analyze_c2( char* file, int offset, int total,
 	int length_sound, length_silence;
 	int bitoffset = 8 * (4 - sample_size);
 
-	int flyer_release  = 1 * sample_rate;
-	int flyer_dropunit = flyer_release / processunit;
-	int flyer_dropspeed;
+	int flyer_dropunit = (int)( (release_f * (double)sample_rate) / (double)processunit );
+	int flyer_dropspeed = 0;
 	int flyer = 0;
 
 	unsigned char *buffer = (unsigned char*) malloc(processsize);
@@ -417,42 +334,13 @@ void analyze_c2( char* file, int offset, int total,
 		// change state
 		if        ( state == STATE_GAP) {
 			if ( flyer >= threshold ) {
-				state = STATE_SOUND_IN_GAP;
-				length_sound = 0;
-			}
-		} else if ( state == STATE_SOUND_IN_GAP) {
-			length_sound += processunit;
-			if ( length_sound >= ignore ) {
 				state = STATE_TRACK;
-				Inline_Stack_Push(newSViv( position - length_sound ));
-			} else if ( flyer < threshold ) {
-				state = STATE_GAP;
+				Inline_Stack_Push(newSViv( position ));
 			}
-
 		} else if ( state == STATE_TRACK) {
 			if ( flyer < threshold ) {
-				state = STATE_SILENCE_IN_TRACK;
-				length_silence = 0;
-			}
-		} else if ( state == STATE_SILENCE_IN_TRACK) {
-			length_silence += processunit;
-			if ( length_silence > gaplength ) {
 				state = STATE_GAP;
-				Inline_Stack_Push(newSViv( position - length_silence ));
-			} else if ( flyer > threshold ) {
-				state = STATE_SOUND_IN_SILENCE_IN_TRACK;
-				length_sound = 0;
-			}
-		} else if ( state == STATE_SOUND_IN_SILENCE_IN_TRACK) {
-			length_silence += processunit;
-			length_sound   += processunit;
-			if ( length_silence > gaplength ) {
-				state = STATE_GAP;
-				Inline_Stack_Push(newSViv( position - length_silence ));
-			} else if ( length_sound > ignore ) {
-				state = STATE_TRACK;
-			} else if ( flyer < threshold ) {
-				state = STATE_SILENCE_IN_TRACK;
+				Inline_Stack_Push(newSViv( position ));
 			}
 		}
 	}
@@ -461,9 +349,6 @@ void analyze_c2( char* file, int offset, int total,
 
 	if        ( state == STATE_TRACK) {
 		Inline_Stack_Push(newSViv( total ));
-	} else if ( state == STATE_SILENCE_IN_TRACK || 
-	            state == STATE_SOUND_IN_SILENCE_IN_TRACK ) {
-		Inline_Stack_Push(newSViv( position - length_silence ));
 	}
 	Inline_Stack_Done;
 }

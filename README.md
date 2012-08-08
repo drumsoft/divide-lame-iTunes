@@ -117,6 +117,7 @@ DIVIDESETTING.txt による分割の 3トラック目 を聴く場合は
     divide-auto.pl DIVIDESETTING.txt 3
 
 分割設定ファイルの替わりに wavファイル を指定すると、一番新しい分割設定ファイルを探して、その3トラック目を再生します。
+
     divide-auto.pl WAVFILE.wav 3
 
 

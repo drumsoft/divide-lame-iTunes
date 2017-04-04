@@ -67,7 +67,7 @@
 * #fadeout 0.3	フェードアウト時間を指定 デフォルトは 0.1
 * #fade 0.3	フェードインとアウトをいっぺんに指定
 * #normalize 1	ノーマライズする(1の時) デフォルトは 0 (しない)
-* #lameoption -b 256 -h	圧縮オプション(lameにそのまま渡す)を指定 デフォルトは "-b 320 -h"
+* #lameoption -q 0 -b 256	圧縮オプション(lameにそのまま渡す)を指定 デフォルトは "-q 0 -b 320"
 
 ### 分割設定ファイルのコメント
 
@@ -92,7 +92,7 @@
 
     #fade 0.1
     #normalize 1
-    #lameoption -b 320 -h
+    #lameoption -q 0 -b 320
     
     ##filename	albumname	year	genre
     ##starttime	number	artist	songname

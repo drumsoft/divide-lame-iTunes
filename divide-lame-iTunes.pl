@@ -14,11 +14,25 @@ my %prefs = (
 	year => '',
 	genre => '',
 	artist  => '',
-	lameoption => '-b 320 -h',
+	lameoption => '-q 0 -b 320',
 );
 
 my $do_unlink = 1; # unlink intermediate files (0 for test)
 my $verbose = 0; # verbose mode (for test)
+
+while (@ARGV) {
+	if ($ARGV[0] =~ /--?no_unlink$/) {
+		$do_unlink = 0;
+		shift @ARGV;
+	} else {
+		last;
+	}
+}
+
+if (@ARGV != 1) {
+	print "usage: divide-lame-iTunes.pl [-no_unlink] encoding-queue.txt\n";
+	exit -1;
+}
 
 sub main () {
 	my $procs = parse(get_commands($ARGV[0]));
@@ -252,7 +266,10 @@ sub trim {
 
 sub get_commands($) {
 	my $file = shift;
-	die "$file isn't exists." unless -e $file;
+	if (! -e $file) {
+		print "file not found: $file\n";
+		exit -1;
+	}
 	open my $in, $file or die "cannot open $file.";
 	my @commands = map {Encode::decode 'utf8', $_} <$in>;
 	close $in;
@@ -267,7 +284,7 @@ template of Divide Setting File.
 
 #fade 0.1
 #normalize 1
-#lameoption -b 320 -h
+#lameoption -q 0 -b 320
 
 ##filename	albumname	year	genre
 ##starttime	number	artist	songname

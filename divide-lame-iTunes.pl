@@ -19,10 +19,11 @@ my %prefs = (
 
 my $do_unlink = 1; # unlink intermediate files (0 for test)
 my $verbose = 0; # verbose mode (for test)
+my $divideonly = 0; # 1 for just divide, 0 for divide-lame-(unlink divided file)-iTunes
 
 while (@ARGV) {
-	if ($ARGV[0] =~ /--?no_unlink$/) {
-		$do_unlink = 0;
+	if ($ARGV[0] =~ /--?divideonly$/) {
+		$divideonly = 1;
 		shift @ARGV;
 	} else {
 		last;
@@ -30,7 +31,7 @@ while (@ARGV) {
 }
 
 if (@ARGV != 1) {
-	print "usage: divide-lame-iTunes.pl [-no_unlink] encoding-queue.txt\n";
+	print "usage: divide-lame-iTunes.pl [-divideonly] encoding-queue.txt\n";
 	exit -1;
 }
 
@@ -44,10 +45,12 @@ sub main () {
 			unlink($_->{'target'}) or warn "WARNING: unlink $_->{'target'} failed." if $do_unlink;
 		}elsif ($_->{'type'} eq 'track') {
 			my $trimmed = trimout($_);
-			my $mp3file = lamemp3($trimmed, $_->{'lameoption'});
-			unlink($trimmed) or warn "WARNING: unlink $trimmed failed." if $do_unlink;
-			write_mp3tags($mp3file, $_);
-			mp3_addiTunes($mp3file);
+			if (!$divideonly) {
+				my $mp3file = lamemp3($trimmed, $_->{'lameoption'});
+				unlink($trimmed) or warn "WARNING: unlink $trimmed failed." if $do_unlink;
+				write_mp3tags($mp3file, $_);
+				mp3_addiTunes($mp3file);
+			}
 		}
 	}
 }
@@ -150,8 +153,10 @@ sub parse($) {
 			}
 			setprefs(\%prefs, \%temp);
 			if ($pre_divider) {
-				$pre_divider->{'length'} = 
-					timediff($prefs{'start'}, $pre_divider->{'start'});
+				$pre_divider->{'length'} = timediff($prefs{'start'}, $pre_divider->{'start'});
+				if ($prefs{'songsinterval'}) {
+					$pre_divider->{'length'} = timediff($pre_divider->{'length'}, $prefs{'songsinterval'});
+				}
 				undef $pre_divider;
 			}
 			if (defined $data && '' ne $data) {
@@ -285,6 +290,7 @@ template of Divide Setting File.
 #fade 0.1
 #normalize 1
 #lameoption -q 0 -b 320
+#songsinterval 2.0
 
 ##filename	albumname	year	genre
 ##starttime	number	artist	songname
